@@ -69,10 +69,102 @@ class ZoomBeater(Drawable):
         new_height = int(self.original_image.get_height() * self.current_scale)
         self.image = pygame.transform.scale(self.original_image, (new_width, new_height))
         self.rect = self.image.get_rect(center=(self.x, self.y))
+        
+        # デバッグ情報（最初の数ビートのみ）
+        if hasattr(self, '_beat_debug_count'):
+            self._beat_debug_count += 1
+        else:
+            self._beat_debug_count = 1
+            
+        if self._beat_debug_count <= 5:  # 最初の5回のビートのみログ出力
+            print(f"ZoomBeater on_beat called: beat_count={beat_count}, pos=({self.x}, {self.y})")
     
     def draw(self, screen):
         """画像を描画"""
         screen.blit(self.image, self.rect)
+
+class CountdownBeater(Drawable):
+    """カウントダウン表示用のオブジェクト"""
+    def __init__(self, x, y, initial_count=4, font_size=200):
+        super().__init__(x, y)
+        self.initial_count = initial_count
+        self.current_count = initial_count
+        self.font_size = font_size
+        self.is_active = True
+        self.flash_frame = 0
+        self.flash_duration = 10  # 10フレームでフラッシュ効果
+    
+    def update(self):
+        """フレームごとの更新処理"""
+        if self.flash_frame > 0:
+            self.flash_frame -= 1
+    
+    def on_beat(self, beat_count):
+        """ビートのタイミングでカウントダウン更新"""
+        if self.is_active and self.current_count > 0:
+            # beat_countは0, 1, 2, 3の順なので、カウントダウンを計算
+            # beat_count 0 -> count 4, beat_count 1 -> count 3, ...
+            new_count = self.initial_count - beat_count
+            if new_count > 0 and new_count != self.current_count:
+                self.current_count = new_count
+                self.flash_frame = self.flash_duration  # フラッシュ効果を開始
+                print(f"Countdown: {self.current_count}")
+            elif new_count <= 0:
+                self.current_count = 0
+                self.is_active = False
+                print("Countdown finished!")
+    
+    def draw(self, screen):
+        """カウントダウンを画面に描画"""
+        if not self.is_active or self.current_count <= 0:
+            return
+        
+        # フラッシュ効果の計算
+        flash_intensity = 1.0
+        if self.flash_frame > 0:
+            flash_intensity = 1.0 + (self.flash_frame / self.flash_duration) * 0.5
+        
+        # 大きなフォントでカウントダウン数字を表示
+        font = pygame.font.Font(None, int(self.font_size * flash_intensity))
+        
+        # カウントダウン数字
+        color_intensity = min(255, int(255 * flash_intensity))
+        text_color = (color_intensity, color_intensity, color_intensity)
+        
+        text = font.render(str(self.current_count), True, text_color)
+        text_rect = text.get_rect(center=(int(self.x), int(self.y)))
+        screen.blit(text, text_rect)
+        
+        # 背景に円を描画（ビジュアル効果）
+        circle_radius = int(120 * flash_intensity)
+        circle_color = (int(100 * flash_intensity), int(100 * flash_intensity), int(100 * flash_intensity))
+        pygame.draw.circle(screen, circle_color, (int(self.x), int(self.y)), circle_radius, 3)
+
+class CountdownInfoText(Drawable):
+    """カウントダウン説明テキスト用のオブジェクト"""
+    def __init__(self, x, y, text="Get ready! Music starts after countdown"):
+        super().__init__(x, y)
+        self.text = text
+        self.alpha = 255
+        self.fade_frame = 0
+    
+    def update(self):
+        """フレームごとの更新処理"""
+        # テキストの点滅効果
+        self.fade_frame += 1
+        self.alpha = int(200 + 55 * math.sin(self.fade_frame * 0.1))
+    
+    def on_beat(self, beat_count):
+        """ビートのタイミングでの処理"""
+        pass
+    
+    def draw(self, screen):
+        """説明テキストを描画"""
+        font = pygame.font.Font(None, 36)
+        color = (self.alpha, self.alpha, self.alpha)
+        text = font.render(self.text, True, color)
+        text_rect = text.get_rect(center=(int(self.x), int(self.y)))
+        screen.blit(text, text_rect)
 
 class FlashBeater(Drawable):
     """ビートに合わせて色が変化する円形オブジェクト"""
@@ -112,8 +204,9 @@ class FlashBeater(Drawable):
 
 class Scene:
     """シーンクラス"""
-    def __init__(self):
+    def __init__(self, name="Unnamed Scene"):
         self.drawables = []
+        self.name = name
     
     def add_drawable(self, drawable):
         """Drawableオブジェクトを追加"""
@@ -133,6 +226,38 @@ class Scene:
         """全てのDrawableオブジェクトを描画"""
         for drawable in self.drawables:
             drawable.draw(screen)
+
+class CountdownScene(Scene):
+    """カウントダウン専用のシーンクラス"""
+    def __init__(self, width, height, countdown_beats=4, on_complete_callback=None):
+        super().__init__("Countdown Scene")
+        self.countdown_beats = countdown_beats
+        self.on_complete_callback = on_complete_callback
+        self.is_completed = False
+        
+        # カウントダウン表示オブジェクトを作成
+        countdown_display = CountdownBeater(width // 2, height // 2, initial_count=countdown_beats)
+        self.add_drawable(countdown_display)
+        
+        # 説明テキストオブジェクトを作成
+        info_text = CountdownInfoText(width // 2, height // 2 + 150)
+        self.add_drawable(info_text)
+    
+    def on_beat(self, beat_count):
+        """ビート処理とカウントダウン完了チェック"""
+        super().on_beat(beat_count)
+        
+        # カウントダウン完了チェック
+        # beat_count が countdown_beats に達したら完了
+        if not self.is_completed and beat_count >= self.countdown_beats:
+            self.is_completed = True
+            print(f"CountdownScene completed at beat {beat_count}")
+            if self.on_complete_callback:
+                self.on_complete_callback()
+    
+    def is_finished(self):
+        """カウントダウンが完了したかどうか"""
+        return self.is_completed
 
 class Movie:
     """ムービークラス"""
@@ -174,9 +299,67 @@ class Movie:
         self.last_fps_time = 0
         self.heavy_processing_mode = False  # 重い処理モードのフラグ
         
+        # カウントダウンとムービー状態
+        self.music_ready = False  # 音楽準備完了フラグ
+        self.countdown_scene = None  # カウントダウンシーンへの参照
+        
         print(f"BPM: {bpm}, Beat interval: {self.beat_interval:.2f}s, Frames per beat: {self.frames_per_beat}")
         print("Time-based beat detection enabled for accurate synchronization")
         print("Press 'H' to toggle heavy processing simulation")
+    
+    def add_countdown_scene(self, countdown_beats=4):
+        """カウントダウンシーンを最初に追加"""
+        def on_countdown_complete():
+            self.start_music_and_scenes()
+        
+        self.countdown_scene = CountdownScene(
+            self.width, 
+            self.height, 
+            countdown_beats=countdown_beats,
+            on_complete_callback=on_countdown_complete
+        )
+        
+        # カウントダウンシーンを最初に挿入
+        self.scenes.insert(0, {
+            'scene': self.countdown_scene,
+            'duration_beats': countdown_beats,
+            'start_beat': None
+        })
+        
+        print(f"Countdown scene added ({countdown_beats} beats)")
+    
+    def start_music_and_scenes(self):
+        """カウントダウン完了後に音楽を開始し、次のシーンに移動"""
+        pygame.mixer.music.play()
+        self.music_ready = True
+        
+        # 音楽開始時刻を記録（音楽位置検出の基準点）
+        self.music_start_time = pygame.time.get_ticks()
+        
+        # 全シーンの開始ビートをリセット
+        for scene_info in self.scenes:
+            scene_info['start_beat'] = None
+        
+        # まず次のシーンに移動
+        if len(self.scenes) > 1:
+            self.switch_to_next_scene()
+        
+        # シーン切り替え後にビート管理をリセット - 音楽開始時点を新たな基準点とする
+        # beat 0から開始できるよう、last_beat_countを-1にリセット
+        self.last_beat_count = -1
+        self.start_time = self.music_start_time
+        
+        print("Music started after countdown!")
+        print("Scene transitions begin now!")
+        print("Beat detection reset for music synchronization")
+        print(f"last_beat_count reset to {self.last_beat_count} for immediate beat 0 detection")
+    
+    def play_with_countdown(self, countdown_beats=4):
+        """カウントダウン付きでムービーを開始"""
+        self.add_countdown_scene(countdown_beats)
+        self.start_time = pygame.time.get_ticks()
+        self.last_beat_count = -1
+        print("Movie started with countdown scene!")
     
     def add_scene(self, scene, duration_beats=None):
         """シーンを追加"""
@@ -209,7 +392,18 @@ class Movie:
     def check_scene_transition(self, current_beat):
         """シーンの切り替えが必要かチェック"""
         scene_info = self.get_current_scene_info()
-        if not scene_info or scene_info['duration_beats'] is None:
+        if not scene_info:
+            return False
+        
+        # カウントダウンシーンの場合は特別処理
+        if isinstance(scene_info['scene'], CountdownScene):
+            if scene_info['scene'].is_finished():
+                # カウントダウンが完了したら次のシーンに切り替え
+                return self.switch_to_next_scene()
+            return False
+        
+        # 通常のシーンの処理
+        if scene_info['duration_beats'] is None:
             return False
         
         # 現在のシーンの開始ビートが設定されていない場合は設定
@@ -235,18 +429,19 @@ class Movie:
             print(f"Music file not found: {music_file}")
     
     def play_music(self):
-        """音楽を再生"""
+        """音楽を即座に再生（カウントダウンなし）"""
         pygame.mixer.music.play()
-        self.music_start_time = pygame.time.get_ticks()
-        self.start_time = self.music_start_time
-        self.last_beat_time = 0
-        self.beat_count = 0
+        self.music_ready = True
+        self.start_time = pygame.time.get_ticks()
         self.last_beat_count = -1
-        print(f"Music started at {self.music_start_time}ms")
+        # 各シーンの開始ビートをリセット
+        for scene_info in self.scenes:
+            scene_info['start_beat'] = None
+        print(f"Music started immediately")
     
     def get_current_beat_from_music(self):
         """音楽の再生位置からビート番号を計算"""
-        if not pygame.mixer.music.get_busy() or self.music_start_time is None:
+        if not self.music_ready or not pygame.mixer.music.get_busy():
             return None
         
         # 音楽の再生位置を取得（ミリ秒）
@@ -301,12 +496,18 @@ class Movie:
                         # スペースキーで音楽再生/停止
                         if pygame.mixer.music.get_busy():
                             pygame.mixer.music.stop()
+                            self.music_ready = False
                         else:
+                            # カウントダウン付きで再生
+                            self.play_with_countdown()
+                    elif event.key == pygame.K_RETURN:
+                        # Enterキーで即座に音楽再生（カウントダウンなし）
+                        if not pygame.mixer.music.get_busy():
                             self.play_music()
                     elif event.key == pygame.K_h:
                         # Hキーで重い処理モードの切り替え
                         self.heavy_processing_mode = not self.heavy_processing_mode
-                        # 全てのZoomBeaterの重い処理モードを更新
+                        # 現在のシーンの重い処理モードを更新
                         scene_info = self.get_current_scene_info()
                         if scene_info and scene_info['scene']:
                             for drawable in scene_info['scene'].drawables:
@@ -320,29 +521,66 @@ class Movie:
             # 実時間ベースのビート検出
             current_beat = None
             
-            # まず音楽の再生位置からビートを取得
-            current_beat = self.get_current_beat_from_music()
+            # 音楽が準備完了している場合
+            if self.music_ready:
+                # 音楽開始から3秒間（6ビート）は実時間ベースを優先
+                time_since_music_start = pygame.time.get_ticks() - self.music_start_time if self.music_start_time else 0
+                if time_since_music_start < 3000:  # 3秒間は実時間ベース
+                    current_beat = self.get_current_beat_from_time()
+                    if current_beat is not None and current_beat <= 8:  # 最初の8ビートでログ出力
+                        print(f"Using time-based beat detection: beat={current_beat}, time_since_start={time_since_music_start}ms")
+                else:
+                    # 3秒後は音楽位置ベースに切り替え
+                    current_beat = self.get_current_beat_from_music()
             
-            # 音楽が停止中または取得できない場合は実時間ベースにフォールバック
+            # フォールバック
             if current_beat is None:
                 current_beat = self.get_current_beat_from_time()
             
             # 新しいビートが発生した場合のみon_beatを呼び出し
             if current_beat is not None and current_beat != self.last_beat_count:
-                if current_beat > self.last_beat_count:  # ビートが進んだ場合のみ
+                # 音楽開始後の最初の10ビートで詳細なデバッグ情報
+                if self.music_ready and current_beat <= 10:
+                    print(f"Beat check: current_beat={current_beat}, last_beat_count={self.last_beat_count}, condition={current_beat > self.last_beat_count}")
+                
+                # 音楽開始直後のビート0～4を強制的に処理するため条件を調整
+                beat_should_process = current_beat > self.last_beat_count
+                
+                # 音楽開始直後の場合は、beat 0～4でも処理を実行
+                if self.music_ready and hasattr(self, 'music_start_time'):
+                    time_since_music_start = pygame.time.get_ticks() - self.music_start_time
+                    if time_since_music_start < 3000 and current_beat <= 4:  # 最初の3秒間でbeat 0-4
+                        beat_should_process = True
+                        if current_beat <= 4:
+                            print(f"Force processing beat {current_beat} during music startup")
+                
+                if beat_should_process:  # 修正された条件を使用
                     # シーンの切り替えをチェック
                     self.check_scene_transition(current_beat)
                     
-                    beat_in_measure = current_beat % self.beats_per_measure
                     scene_info = self.get_current_scene_info()
                     if scene_info and scene_info['scene']:
-                        scene_info['scene'].on_beat(beat_in_measure)
+                        # CountdownSceneの場合は生のcurrent_beatを、その他は beat_in_measure を使用
+                        if isinstance(scene_info['scene'], CountdownScene):
+                            scene_info['scene'].on_beat(current_beat)
+                        else:
+                            beat_in_measure = current_beat % self.beats_per_measure
+                            scene_info['scene'].on_beat(beat_in_measure)
+                            
+                            # 音楽開始後の最初の数ビートでデバッグ情報を表示
+                            if self.music_ready and current_beat <= 8:
+                                print(f"Music Beat {current_beat} (measure: {beat_in_measure}) - Scene: {scene_info['scene'].name}")
+                                
+                            # 音楽開始直後からZoomBeaterが動作するよう、beat 0でも on_beat を呼び出す
+                            if self.music_ready and current_beat == 0:
+                                print(f"Force triggering beat 0 for immediate ZoomBeater activation")
                     
                     # デバッグ情報（パフォーマンス低下時のみ表示）
                     if self.actual_fps < self.fps * 0.8:  # 目標FPSの80%以下の場合
                         scene_num = self.current_scene + 1
                         total_scenes = len(self.scenes)
-                        print(f"Beat {current_beat} (measure: {beat_in_measure}) Scene {scene_num}/{total_scenes} - FPS: {self.actual_fps:.1f}")
+                        scene_name = scene_info['scene'].name if scene_info else "Unknown"
+                        print(f"Beat {current_beat} (measure: {beat_in_measure}) Scene {scene_num}/{total_scenes} ({scene_name}) - FPS: {self.actual_fps:.1f}")
                     
                     self.last_beat_count = current_beat
             
@@ -353,23 +591,25 @@ class Movie:
             
             # 描画処理
             self.screen.fill((0, 0, 50))  # 濃紺背景
+            
+            # 現在のシーンを描画
             if scene_info and scene_info['scene']:
                 scene_info['scene'].draw(self.screen)
-            
-            # シーン情報を画面に表示
-            if scene_info:
-                font = pygame.font.Font(None, 24)
-                scene_num = self.current_scene + 1
-                total_scenes = len(self.scenes)
-                scene_text = font.render(f"Scene {scene_num}/{total_scenes}", True, (255, 255, 255))
-                self.screen.blit(scene_text, (10, 50))
                 
-                # シーンの残り時間表示
-                if scene_info['duration_beats'] is not None and scene_info['start_beat'] is not None:
-                    beats_in_scene = current_beat - scene_info['start_beat'] if current_beat else 0
-                    remaining_beats = max(0, scene_info['duration_beats'] - beats_in_scene)
-                    remaining_text = font.render(f"Remaining: {remaining_beats} beats", True, (255, 255, 255))
-                    self.screen.blit(remaining_text, (10, 75))
+                # シーン情報を画面に表示（カウントダウンシーン以外）
+                if not isinstance(scene_info['scene'], CountdownScene):
+                    font = pygame.font.Font(None, 24)
+                    scene_num = self.current_scene + 1
+                    total_scenes = len(self.scenes)
+                    scene_text = font.render(f"Scene {scene_num}/{total_scenes} - {scene_info['scene'].name}", True, (255, 255, 255))
+                    self.screen.blit(scene_text, (10, 50))
+                    
+                    # シーンの残り時間表示
+                    if scene_info['duration_beats'] is not None and scene_info['start_beat'] is not None:
+                        beats_in_scene = current_beat - scene_info['start_beat'] if current_beat else 0
+                        remaining_beats = max(0, scene_info['duration_beats'] - beats_in_scene)
+                        remaining_text = font.render(f"Remaining: {remaining_beats} beats", True, (255, 255, 255))
+                        self.screen.blit(remaining_text, (10, 75))
             
             # FPS情報を画面に表示（デバッグ用）
             if hasattr(pygame, 'font') and self.actual_fps < self.fps * 0.9:
@@ -391,8 +631,8 @@ def main():
     # 音楽ファイル読み込み
     movie.load_music("base.mp3")
     
-    # === シーン1: ZoomBeaterのシーン (16ビート = 4小節) ===
-    scene1 = Scene()
+    # === シーン1: ZoomBeaterのシーン (8ビート = 2小節) ===
+    scene1 = Scene("Star Zoom Scene")
     
     # ZoomBeaterオブジェクト作成（画面中央に配置）
     if os.path.exists("images/star_1.png"):
@@ -412,8 +652,8 @@ def main():
     else:
         print("Warning: images/star_1.png not found")
     
-    # === シーン2: FlashBeaterのシーン (12ビート = 3小節) ===
-    scene2 = Scene()
+    # === シーン2: FlashBeaterのシーン (8ビート = 2小節) ===
+    scene2 = Scene("Colorful Flash Scene")
     
     # FlashBeaterオブジェクト作成
     colors = [
@@ -436,8 +676,8 @@ def main():
     
     print("Scene 2: FlashBeater scene created")
     
-    # === シーン3: 混合シーン (20ビート = 5小節) ===
-    scene3 = Scene()
+    # === シーン3: 混合シーン (16ビート = 4小節) ===
+    scene3 = Scene("Mixed Effects Scene")
     
     # 中央に大きなFlashBeater
     center_flash = FlashBeater(400, 300, radius=80, color=(50, 50, 200), flash_color=(255, 255, 0))
@@ -466,10 +706,13 @@ def main():
     print(f"Total scenes: {len(movie.scenes)}")
     print("Scene durations: 8, 8, 16 beats respectively")
 
-    # 音楽再生開始
-    movie.play_music()
+    # カウントダウン付きで音楽再生開始
+    movie.play_with_countdown()
     
-    print("Movie started! Press SPACE to play/stop music, H to toggle heavy processing")
+    print("Movie started with countdown! Controls:")
+    print("  SPACE: Start with countdown / Stop music / Cancel countdown")
+    print("  ENTER: Start immediately (no countdown)")
+    print("  H: Toggle heavy processing simulation")
     print("Time-based beat synchronization enabled - beats will stay in sync even with low FPS")
     print("Scenes will automatically switch based on beat count")
     
