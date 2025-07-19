@@ -13,8 +13,13 @@ class Drawable:
         """フレームごとに呼ばれる更新処理"""
         pass
     
-    def on_beat(self, beat_count):
-        """ビートのタイミングで呼ばれる処理"""
+    def on_beat(self, beat, measure):
+        """ビートのタイミングで呼ばれる処理
+        
+        Args:
+            beat: 絶対ビート番号（0から開始）
+            measure: 小節内でのビート番号（0-3の循環）
+        """
         pass
     
     def draw(self, screen):
@@ -60,7 +65,7 @@ class ZoomBeater(Drawable):
             self.image = pygame.transform.scale(self.original_image, (new_width, new_height))
             self.rect = self.image.get_rect(center=(self.x, self.y))
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """ビートのタイミングで拡大開始"""
         self.zoom_frame = self.zoom_duration
         self.current_scale = self.zoom_scale
@@ -91,12 +96,12 @@ class CountdownBeater(Drawable):
         if self.flash_frame > 0:
             self.flash_frame -= 1
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """ビートのタイミングでカウントダウン更新"""
         if self.is_active and self.current_count > 0:
-            # beat_countは0, 1, 2, 3の順なので、カウントダウンを計算
-            # beat_count 0 -> count 4, beat_count 1 -> count 3, ...
-            new_count = self.initial_count - beat_count
+            # beatは0, 1, 2, 3の順なので、カウントダウンを計算
+            # beat 0 -> count 4, beat 1 -> count 3, ...
+            new_count = self.initial_count - beat
             if new_count > 0 and new_count != self.current_count:
                 self.current_count = new_count
                 self.flash_frame = self.flash_duration  # フラッシュ効果を開始
@@ -146,7 +151,7 @@ class CountdownInfoText(Drawable):
         self.fade_frame += 1
         self.alpha = int(200 + 55 * math.sin(self.fade_frame * 0.1))
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """ビートのタイミングでの処理"""
         pass
     
@@ -185,7 +190,7 @@ class FlashBeater(Drawable):
         else:
             self.current_color = self.base_color
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """ビートのタイミングでフラッシュ開始"""
         self.flash_frame = self.flash_duration
         self.current_color = self.flash_color
@@ -211,10 +216,10 @@ class Scene:
         for drawable in self.drawables:
             drawable.update()
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """全てのDrawableオブジェクトにビート通知"""
         for drawable in self.drawables:
-            drawable.on_beat(beat_count)
+            drawable.on_beat(beat, measure)
     
     def draw(self, screen):
         """全てのDrawableオブジェクトを描画"""
@@ -237,15 +242,15 @@ class CountdownScene(Scene):
         info_text = CountdownInfoText(width // 2, height // 2 + 150)
         self.add_drawable(info_text)
     
-    def on_beat(self, beat_count):
+    def on_beat(self, beat, measure):
         """ビート処理とカウントダウン完了チェック"""
-        super().on_beat(beat_count)
+        super().on_beat(beat, measure)
         
         # カウントダウン完了チェック
-        # beat_count が countdown_beats に達したら完了
-        if not self.is_completed and beat_count >= self.countdown_beats:
+        # beat が countdown_beats に達したら完了
+        if not self.is_completed and beat >= self.countdown_beats:
             self.is_completed = True
-            print(f"CountdownScene completed at beat {beat_count}")
+            print(f"CountdownScene completed at beat {beat}")
             if self.on_complete_callback:
                 self.on_complete_callback()
     
@@ -564,12 +569,9 @@ class Movie:
                     
                     scene = self.get_current_scene()
                     if scene:
-                        # CountdownSceneの場合は生のcurrent_beatを、その他は beat_in_measure を使用
-                        if isinstance(scene, CountdownScene):
-                            scene.on_beat(current_beat)
-                        else:
-                            beat_in_measure = current_beat % self.beats_per_measure
-                            scene.on_beat(beat_in_measure)
+                        # 全てのシーンで統一された形式でon_beatを呼び出し
+                        beat_in_measure = current_beat % self.beats_per_measure
+                        scene.on_beat(current_beat, beat_in_measure)
                     
                     # デバッグ情報を常に表示（通常時）
                     scene_num = self.current_scene + 1
