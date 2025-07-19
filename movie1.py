@@ -327,18 +327,18 @@ class Movie:
         # 音楽開始時刻を記録（音楽位置検出の基準点）
         self.music_start_time = pygame.time.get_ticks()
         
+        # ビート管理をリセット - 音楽開始時点を新たな基準点とする
+        # beat 0から開始できるよう、last_beat_countを-1にリセット
+        self.last_beat_count = -1
+        self.start_time = self.music_start_time
+        
         # 全シーンの開始ビートをリセット
         for scene_info in self.scenes:
             scene_info['start_beat'] = None
         
-        # まず次のシーンに移動
+        # 次のシーンに移動（ビートリセット後なので正しいbeat 0付近が設定される）
         if len(self.scenes) > 1:
             self.switch_to_next_scene()
-        
-        # シーン切り替え後にビート管理をリセット - 音楽開始時点を新たな基準点とする
-        # beat 0から開始できるよう、last_beat_countを-1にリセット
-        self.last_beat_count = -1
-        self.start_time = self.music_start_time
         
         print("Music started after countdown!")
         print("Scene transitions begin now!")
@@ -669,6 +669,7 @@ def main():
     movie.add_scene(scene1, duration_beats=8)  # 2小節
     movie.add_scene(scene2, duration_beats=8)  # 1小節
     movie.add_scene(scene3, duration_beats=16)  # 2小節
+    movie.add_scene(scene2, duration_beats=8)  # 1小節
     
     print(f"Total scenes: {len(movie.scenes)}")
     print("Scene durations: 8, 8, 16 beats respectively")
