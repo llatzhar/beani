@@ -69,15 +69,6 @@ class ZoomBeater(Drawable):
         new_height = int(self.original_image.get_height() * self.current_scale)
         self.image = pygame.transform.scale(self.original_image, (new_width, new_height))
         self.rect = self.image.get_rect(center=(self.x, self.y))
-        
-        # デバッグ情報（最初の数ビートのみ）
-        if hasattr(self, '_beat_debug_count'):
-            self._beat_debug_count += 1
-        else:
-            self._beat_debug_count = 1
-            
-        if self._beat_debug_count <= 5:  # 最初の5回のビートのみログ出力
-            print(f"ZoomBeater on_beat called: beat_count={beat_count}, pos=({self.x}, {self.y})")
     
     def draw(self, screen):
         """画像を描画"""
@@ -351,8 +342,6 @@ class Movie:
         
         print("Music started after countdown!")
         print("Scene transitions begin now!")
-        print("Beat detection reset for music synchronization")
-        print(f"last_beat_count reset to {self.last_beat_count} for immediate beat 0 detection")
     
     def play_with_countdown(self, countdown_beats=4):
         """カウントダウン付きでムービーを開始"""
@@ -518,20 +507,12 @@ class Movie:
             # FPS監視更新
             self.update_fps_monitor()
             
-            # 実時間ベースのビート検出
+            # ビート検出
             current_beat = None
             
-            # 音楽が準備完了している場合
+            # 音楽が準備完了している場合は音楽位置を使用、そうでなければ実時間
             if self.music_ready:
-                # 音楽開始から3秒間（6ビート）は実時間ベースを優先
-                time_since_music_start = pygame.time.get_ticks() - self.music_start_time if self.music_start_time else 0
-                if time_since_music_start < 3000:  # 3秒間は実時間ベース
-                    current_beat = self.get_current_beat_from_time()
-                    if current_beat is not None and current_beat <= 8:  # 最初の8ビートでログ出力
-                        print(f"Using time-based beat detection: beat={current_beat}, time_since_start={time_since_music_start}ms")
-                else:
-                    # 3秒後は音楽位置ベースに切り替え
-                    current_beat = self.get_current_beat_from_music()
+                current_beat = self.get_current_beat_from_music()
             
             # フォールバック
             if current_beat is None:
@@ -539,10 +520,6 @@ class Movie:
             
             # 新しいビートが発生した場合のみon_beatを呼び出し
             if current_beat is not None and current_beat != self.last_beat_count:
-                # 音楽開始後の最初の10ビートで詳細なデバッグ情報
-                if self.music_ready and current_beat <= 10:
-                    print(f"Beat check: current_beat={current_beat}, last_beat_count={self.last_beat_count}, condition={current_beat > self.last_beat_count}")
-                
                 # 音楽開始直後のビート0～4を強制的に処理するため条件を調整
                 beat_should_process = current_beat > self.last_beat_count
                 
@@ -551,8 +528,6 @@ class Movie:
                     time_since_music_start = pygame.time.get_ticks() - self.music_start_time
                     if time_since_music_start < 3000 and current_beat <= 4:  # 最初の3秒間でbeat 0-4
                         beat_should_process = True
-                        if current_beat <= 4:
-                            print(f"Force processing beat {current_beat} during music startup")
                 
                 if beat_should_process:  # 修正された条件を使用
                     # シーンの切り替えをチェック
@@ -566,14 +541,6 @@ class Movie:
                         else:
                             beat_in_measure = current_beat % self.beats_per_measure
                             scene_info['scene'].on_beat(beat_in_measure)
-                            
-                            # 音楽開始後の最初の数ビートでデバッグ情報を表示
-                            if self.music_ready and current_beat <= 8:
-                                print(f"Music Beat {current_beat} (measure: {beat_in_measure}) - Scene: {scene_info['scene'].name}")
-                                
-                            # 音楽開始直後からZoomBeaterが動作するよう、beat 0でも on_beat を呼び出す
-                            if self.music_ready and current_beat == 0:
-                                print(f"Force triggering beat 0 for immediate ZoomBeater activation")
                     
                     # デバッグ情報（パフォーマンス低下時のみ表示）
                     if self.actual_fps < self.fps * 0.8:  # 目標FPSの80%以下の場合
