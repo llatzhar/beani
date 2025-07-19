@@ -197,7 +197,6 @@ class Movie:
         self.countdown = Countdown(self.width, self.height, countdown_beats)
         self.countdown.start_countdown(self.beat_interval_ms)
         self.start_time = pygame.time.get_ticks()
-        self.last_beat_count = -1
         
         # カウントダウン中は通常のシーンを無効化
         self.current_scene = -1  # 無効な値に設定
