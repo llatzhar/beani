@@ -421,11 +421,23 @@ class Movie:
         """音楽を即座に再生（カウントダウンなし）"""
         pygame.mixer.music.play()
         self.music_ready = True
-        self.start_time = pygame.time.get_ticks()
+        self.music_start_time = pygame.time.get_ticks()
+        self.start_time = self.music_start_time
         self.last_beat_count = -1
+        
+        # カウントダウンシーンをスキップして次のシーンに移動
+        if (self.scenes and 
+            isinstance(self.scenes[self.current_scene]['scene'], CountdownScene)):
+            # カウントダウンシーンを完了状態にする
+            self.scenes[self.current_scene]['scene'].is_completed = True
+            # 次のシーンに切り替え
+            if len(self.scenes) > 1:
+                self.switch_to_next_scene()
+        
         # 各シーンの開始ビートをリセット
         for scene_info in self.scenes:
             scene_info['start_beat'] = None
+        
         print(f"Music started immediately")
     
     def get_current_beat_from_music(self):
@@ -524,7 +536,7 @@ class Movie:
                 beat_should_process = current_beat > self.last_beat_count
                 
                 # 音楽開始直後の場合は、beat 0～4でも処理を実行
-                if self.music_ready and hasattr(self, 'music_start_time'):
+                if self.music_ready and hasattr(self, 'music_start_time') and self.music_start_time is not None:
                     time_since_music_start = pygame.time.get_ticks() - self.music_start_time
                     if time_since_music_start < 3000 and current_beat <= 4:  # 最初の3秒間でbeat 0-4
                         beat_should_process = True
