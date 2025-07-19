@@ -80,89 +80,6 @@ class ZoomBeater(Drawable):
         """画像を描画"""
         screen.blit(self.image, self.rect)
 
-class CountdownBeater(Drawable):
-    """カウントダウン表示用のオブジェクト"""
-    def __init__(self, x, y, initial_count=4, font_size=200):
-        super().__init__(x, y)
-        self.initial_count = initial_count
-        self.current_count = initial_count
-        self.font_size = font_size
-        self.is_active = True
-        self.flash_frame = 0
-        self.flash_duration = 10  # 10フレームでフラッシュ効果
-    
-    def update(self):
-        """フレームごとの更新処理"""
-        if self.flash_frame > 0:
-            self.flash_frame -= 1
-    
-    def on_beat(self, beat, measure):
-        """ビートのタイミングでカウントダウン更新"""
-        if self.is_active and self.current_count > 0:
-            # beatは0, 1, 2, 3の順なので、カウントダウンを計算
-            # beat 0 -> count 4, beat 1 -> count 3, ...
-            new_count = self.initial_count - beat
-            if new_count > 0 and new_count != self.current_count:
-                self.current_count = new_count
-                self.flash_frame = self.flash_duration  # フラッシュ効果を開始
-                print(f"Countdown: {self.current_count}")
-            elif new_count <= 0:
-                self.current_count = 0
-                self.is_active = False
-                print("Countdown finished!")
-    
-    def draw(self, screen):
-        """カウントダウンを画面に描画"""
-        if not self.is_active or self.current_count <= 0:
-            return
-        
-        # フラッシュ効果の計算
-        flash_intensity = 1.0
-        if self.flash_frame > 0:
-            flash_intensity = 1.0 + (self.flash_frame / self.flash_duration) * 0.5
-        
-        # 大きなフォントでカウントダウン数字を表示
-        font = pygame.font.Font(None, int(self.font_size * flash_intensity))
-        
-        # カウントダウン数字
-        color_intensity = min(255, int(255 * flash_intensity))
-        text_color = (color_intensity, color_intensity, color_intensity)
-        
-        text = font.render(str(self.current_count), True, text_color)
-        text_rect = text.get_rect(center=(int(self.x), int(self.y)))
-        screen.blit(text, text_rect)
-        
-        # 背景に円を描画（ビジュアル効果）
-        circle_radius = int(120 * flash_intensity)
-        circle_color = (int(100 * flash_intensity), int(100 * flash_intensity), int(100 * flash_intensity))
-        pygame.draw.circle(screen, circle_color, (int(self.x), int(self.y)), circle_radius, 3)
-
-class CountdownInfoText(Drawable):
-    """カウントダウン説明テキスト用のオブジェクト"""
-    def __init__(self, x, y, text="Get ready! Music starts after countdown"):
-        super().__init__(x, y)
-        self.text = text
-        self.alpha = 255
-        self.fade_frame = 0
-    
-    def update(self):
-        """フレームごとの更新処理"""
-        # テキストの点滅効果
-        self.fade_frame += 1
-        self.alpha = int(200 + 55 * math.sin(self.fade_frame * 0.1))
-    
-    def on_beat(self, beat, measure):
-        """ビートのタイミングでの処理"""
-        pass
-    
-    def draw(self, screen):
-        """説明テキストを描画"""
-        font = pygame.font.Font(None, 36)
-        color = (self.alpha, self.alpha, self.alpha)
-        text = font.render(self.text, True, color)
-        text_rect = text.get_rect(center=(int(self.x), int(self.y)))
-        screen.blit(text, text_rect)
-
 class FlashBeater(Drawable):
     """ビートに合わせて色が変化する円形オブジェクト"""
     def __init__(self, x, y, radius=50, color=(255, 255, 255), flash_color=(255, 255, 0)):
@@ -226,7 +143,7 @@ class Scene:
         for drawable in self.drawables:
             drawable.draw(screen)
 
-class CountdownManager:
+class Countdown:
     """カウントダウン管理クラス（シーンから独立）"""
     def __init__(self, width, height, countdown_beats=4):
         self.countdown_beats = countdown_beats
@@ -234,10 +151,22 @@ class CountdownManager:
         self.is_completed = False
         self.start_time = None
         self.beat_interval_ms = 500  # 120BPMでの1ビートの時間（ms）
+        self.last_beat_processed = -1
         
-        # カウントダウン表示オブジェクト
-        self.countdown_display = CountdownBeater(width // 2, height // 2, initial_count=countdown_beats)
-        self.info_text = CountdownInfoText(width // 2, height // 2 + 150)
+        # 表示位置
+        self.center_x = width // 2
+        self.center_y = height // 2
+        self.info_y = height // 2 + 150
+        
+        # カウントダウン表示用
+        self.current_count = countdown_beats
+        self.flash_frame = 0
+        self.flash_duration = 10  # 10フレームでフラッシュ効果
+        
+        # 情報テキスト用
+        self.text = "Get ready! Music starts after countdown"
+        self.alpha = 255
+        self.fade_frame = 0
     
     def start_countdown(self, beat_interval_ms):
         """カウントダウン開始"""
@@ -245,6 +174,8 @@ class CountdownManager:
         self.is_completed = False
         self.start_time = pygame.time.get_ticks()
         self.beat_interval_ms = beat_interval_ms
+        self.last_beat_processed = -1
+        self.current_count = self.countdown_beats
         print(f"Countdown started for {self.countdown_beats} beats")
     
     def update(self):
@@ -264,18 +195,57 @@ class CountdownManager:
             print(f"Countdown completed!")
             return
         
-        # ビートごとにカウントダウン表示を更新
-        self.countdown_display.on_beat(current_beat, current_beat % 4)
+        # ビートが進んだときのカウントダウン更新
+        if current_beat != self.last_beat_processed and current_beat < self.countdown_beats:
+            new_count = self.countdown_beats - current_beat
+            if new_count != self.current_count and new_count > 0:
+                self.current_count = new_count
+                self.flash_frame = self.flash_duration  # フラッシュ効果を開始
+                print(f"Countdown: {self.current_count}")
+            self.last_beat_processed = current_beat
         
-        # 表示オブジェクトの更新
-        self.countdown_display.update()
-        self.info_text.update()
+        # フラッシュ効果の更新
+        if self.flash_frame > 0:
+            self.flash_frame -= 1
+        
+        # 情報テキストの点滅効果
+        self.fade_frame += 1
+        self.alpha = int(200 + 55 * math.sin(self.fade_frame * 0.1))
     
     def draw(self, screen):
         """カウントダウンを描画"""
-        if self.is_active and not self.is_completed:
-            self.countdown_display.draw(screen)
-            self.info_text.draw(screen)
+        if not self.is_active or self.is_completed or self.current_count <= 0:
+            return
+        
+        # カウントダウン数字の描画
+        # フラッシュ効果の計算
+        flash_intensity = 1.0
+        if self.flash_frame > 0:
+            flash_intensity = 1.0 + (self.flash_frame / self.flash_duration) * 0.5
+        
+        # 大きなフォントでカウントダウン数字を表示
+        font_size = int(200 * flash_intensity)
+        font = pygame.font.Font(None, font_size)
+        
+        # カウントダウン数字
+        color_intensity = min(255, int(255 * flash_intensity))
+        text_color = (color_intensity, color_intensity, color_intensity)
+        
+        text = font.render(str(self.current_count), True, text_color)
+        text_rect = text.get_rect(center=(self.center_x, self.center_y))
+        screen.blit(text, text_rect)
+        
+        # 背景に円を描画（ビジュアル効果）
+        circle_radius = int(120 * flash_intensity)
+        circle_color = (int(100 * flash_intensity), int(100 * flash_intensity), int(100 * flash_intensity))
+        pygame.draw.circle(screen, circle_color, (self.center_x, self.center_y), circle_radius, 3)
+        
+        # 情報テキストの描画
+        info_font = pygame.font.Font(None, 36)
+        info_color = (self.alpha, self.alpha, self.alpha)
+        info_text = info_font.render(self.text, True, info_color)
+        info_rect = info_text.get_rect(center=(self.center_x, self.info_y))
+        screen.blit(info_text, info_rect)
 
 class Movie:
     """ムービークラス"""
@@ -319,8 +289,7 @@ class Movie:
         
         # カウントダウンとムービー状態
         self.music_ready = False  # 音楽準備完了フラグ
-        self.countdown_manager = None  # カウントダウンマネージャー
-        self._scene_just_switched = False  # シーン切り替え直後フラグ
+        self.countdown = None  # カウントダウン管理
         
         print(f"BPM: {bpm}, Beat interval: {self.beat_interval:.2f}s, Frames per beat: {self.frames_per_beat}")
         print("Time-based beat detection enabled for accurate synchronization")
@@ -328,8 +297,8 @@ class Movie:
     
     def start_countdown(self, countdown_beats=4):
         """カウントダウンを開始"""
-        self.countdown_manager = CountdownManager(self.width, self.height, countdown_beats)
-        self.countdown_manager.start_countdown(self.beat_interval_ms)
+        self.countdown = Countdown(self.width, self.height, countdown_beats)
+        self.countdown.start_countdown(self.beat_interval_ms)
         self.start_time = pygame.time.get_ticks()
         self.last_beat_count = -1
         
@@ -373,7 +342,7 @@ class Movie:
     def get_current_scene(self):
         """現在のシーンを取得"""
         # カウントダウン中は通常のシーンを返さない
-        if self.countdown_manager and self.countdown_manager.is_active:
+        if self.countdown and self.countdown.is_active:
             return None
         
         if not self.scenes or self.current_scene < 0 or self.current_scene >= len(self.scenes):
@@ -445,9 +414,9 @@ class Movie:
         self.last_beat_count = -1
         
         # カウントダウンを無効化
-        if self.countdown_manager:
-            self.countdown_manager.is_active = False
-            self.countdown_manager.is_completed = True
+        if self.countdown:
+            self.countdown.is_active = False
+            self.countdown.is_completed = True
         
         # 最初のシーンを開始
         if self.scenes:
@@ -539,36 +508,20 @@ class Movie:
             current_beat = self.get_current_beat()
             
             # カウントダウン中の処理
-            if self.countdown_manager and self.countdown_manager.is_active:
-                self.countdown_manager.update()
+            if self.countdown and self.countdown.is_active:
+                self.countdown.update()
                 
                 # カウントダウン完了チェック
-                if self.countdown_manager.is_completed:
+                if self.countdown.is_completed:
                     self.start_music_and_scenes()
             
             elif current_beat is not None and current_beat != self.last_beat_count:
                 # 基本的な処理条件
                 should_process = current_beat > self.last_beat_count
                 
-                # 音楽開始直後の遅延を考慮した特別処理
-                if (self.music_ready and 
-                    hasattr(self, 'music_start_time') and 
-                    self.music_start_time is not None):
-                    time_since_music_start = pygame.time.get_ticks() - self.music_start_time
-                    # 音楽開始からしばらくはpygame.mixer.music.get_pos()が正常に動作しない遅延時間がある
-                    # 3秒以内で、かつ現在のビートが0～4の範囲内であれば強制的に処理
-                    #if time_since_music_start < 3000 and current_beat <= 4:
-                    #    should_process = True
-                
                 if should_process:
                     # シーンの切り替えをチェック
                     self.check_scene_transition(current_beat)
-                    
-                    # シーン切り替え直後の場合は、古いシーン情報の表示を避ける
-                    if self._scene_just_switched:
-                        print(f"DEBUG: Beat processing interrupted due to scene switch")
-                        self._scene_just_switched = False
-                        continue
                     
                     scene = self.get_current_scene()
                     if scene:
@@ -600,8 +553,8 @@ class Movie:
             self.screen.fill((0, 0, 50))  # 濃紺背景
             
             # カウントダウン表示
-            if self.countdown_manager and self.countdown_manager.is_active:
-                self.countdown_manager.draw(self.screen)
+            if self.countdown and self.countdown.is_active:
+                self.countdown.draw(self.screen)
             else:
                 # 通常のシーンを描画
                 scene = self.get_current_scene()
