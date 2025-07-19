@@ -1,6 +1,7 @@
 import pygame
 import math
 import os
+from resources import Resources
 
 class Drawable:
     """描画可能オブジェクトの基底クラス"""
@@ -629,32 +630,44 @@ class Movie:
 
 def main():
     """メイン関数"""
+    # === リソース管理の初期化 ===
+    resources = Resources()
+    
+    # 必須ファイルの定義
+    required_images = ['star_1']  # star_1は必須
+    required_musics = ['base']    # base.mp3は必須
+    
+    # 必須ファイルの存在チェック
+    if not resources.check_required_files(required_images, required_musics):
+        resources.print_missing_files_error()
+        return
+    
+    # リソースの概要表示
+    resources.print_summary()
+    print("All required files found - proceeding with movie creation...")
+    print()
+    
     # ムービー初期化
     movie = Movie(width=800, height=600, fps=30, bpm=120)
     
-    # 音楽ファイル読み込み
-    movie.load_music("base.mp3")
+    # 音楽ファイル読み込み（必ず存在する）
+    movie.load_music(resources.get_music('base'))
     
     # === シーン1: ZoomBeaterのシーン (8ビート = 2小節) ===
     scene1 = Scene("Star Zoom Scene", duration_beats=8)
     
     # ZoomBeaterオブジェクト作成（画面中央に配置）
-    if os.path.exists("images/star_1.png"):
-        zoom_beater = ZoomBeater(400, 300, "images/star_1.png", scale=1.0, zoom_scale=1.5)
-        scene1.add_drawable(zoom_beater)
-        
-        # 複数のZoomBeaterを追加
-        positions = [(200, 150), (600, 150), (200, 450), (600, 450)]
-        for i, (x, y) in enumerate(positions):
-            if os.path.exists("images/star_2.png"):
-                zoom_beater2 = ZoomBeater(x, y, "images/star_2.png", scale=0.8, zoom_scale=1.3)
-            else:
-                zoom_beater2 = ZoomBeater(x, y, "images/star_1.png", scale=0.6, zoom_scale=1.2)
-            scene1.add_drawable(zoom_beater2)
-        
-        print("Scene 1: ZoomBeater scene created")
-    else:
-        print("Warning: images/star_1.png not found")
+    zoom_beater = ZoomBeater(400, 300, resources.get_image('star_1'), scale=1.0, zoom_scale=1.5)
+    scene1.add_drawable(zoom_beater)
+    
+    # 複数のZoomBeaterを追加（star_2があれば使用、なければstar_1を使用）
+    positions = [(200, 150), (600, 150), (200, 450), (600, 450)]
+    for i, (x, y) in enumerate(positions):
+        image_path = resources.get_image('star_2') or resources.get_image('star_1')
+        zoom_beater2 = ZoomBeater(x, y, image_path, scale=0.8, zoom_scale=1.3)
+        scene1.add_drawable(zoom_beater2)
+    
+    print("Scene 1: ZoomBeater scene created")
     
     # === シーン2: FlashBeaterのシーン (8ビート = 2小節) ===
     scene2 = Scene("Colorful Flash Scene", duration_beats=8)
@@ -687,18 +700,17 @@ def main():
     center_flash = FlashBeater(400, 300, radius=80, color=(50, 50, 200), flash_color=(255, 255, 0))
     scene3.add_drawable(center_flash)
     
-    # 周囲に小さなZoomBeater（画像がある場合）
-    if os.path.exists("images/star_1.png"):
-        circle_positions = []
-        for angle in range(0, 360, 45):  # 8方向
-            rad = math.radians(angle)
-            x = 400 + 150 * math.cos(rad)
-            y = 300 + 150 * math.sin(rad)
-            circle_positions.append((x, y))
-        
-        for x, y in circle_positions:
-            small_zoom = ZoomBeater(int(x), int(y), "images/star_1.png", scale=0.4, zoom_scale=0.8)
-            scene3.add_drawable(small_zoom)
+    # 周囲に小さなZoomBeater（star_1を使用）
+    circle_positions = []
+    for angle in range(0, 360, 45):  # 8方向
+        rad = math.radians(angle)
+        x = 400 + 150 * math.cos(rad)
+        y = 300 + 150 * math.sin(rad)
+        circle_positions.append((x, y))
+    
+    for x, y in circle_positions:
+        small_zoom = ZoomBeater(int(x), int(y), resources.get_image('star_1'), scale=0.4, zoom_scale=0.8)
+        scene3.add_drawable(small_zoom)
     
     print("Scene 3: Mixed scene created")
     
@@ -706,17 +718,8 @@ def main():
     movie.add_scene(scene1)  # 8ビート
     movie.add_scene(scene2)  # 8ビート
     movie.add_scene(scene3)  # 16ビート
-    movie.add_scene(Scene("Final Flash Scene", duration_beats=8))  # 最終シーンとして8ビート
-    
-    # 最終シーンにFlashBeaterを追加
-    final_scene = movie.scenes[-1]
-    for i, (x, y) in enumerate(flash_positions):
-        color = colors[i % len(colors)]
-        flash_beater = FlashBeater(x, y, radius=40, color=color, flash_color=(255, 255, 255))
-        final_scene.add_drawable(flash_beater)
-    
+    movie.add_scene(scene2)  # 8ビート
     print(f"Total scenes: {len(movie.scenes)}")
-    print("Scene durations: 8, 8, 16 beats respectively")
 
     # カウントダウン付きで音楽再生開始
     movie.play_with_countdown()
