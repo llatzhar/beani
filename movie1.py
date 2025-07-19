@@ -74,6 +74,42 @@ class ZoomBeater(Drawable):
         """画像を描画"""
         screen.blit(self.image, self.rect)
 
+class FlashBeater(Drawable):
+    """ビートに合わせて色が変化する円形オブジェクト"""
+    def __init__(self, x, y, radius=50, color=(255, 255, 255), flash_color=(255, 255, 0)):
+        super().__init__(x, y)
+        self.radius = radius
+        self.base_color = color
+        self.flash_color = flash_color
+        self.current_color = color
+        self.flash_frame = 0
+        self.flash_duration = 5  # 5フレームで元の色に戻る
+    
+    def update(self):
+        """フレームごとの更新処理"""
+        if self.flash_frame > 0:
+            # フラッシュ中の処理：5フレームで元の色に戻る
+            progress = 1.0 - (self.flash_frame / self.flash_duration)
+            
+            # 色を線形補間
+            r = int(self.base_color[0] + (self.flash_color[0] - self.base_color[0]) * progress)
+            g = int(self.base_color[1] + (self.flash_color[1] - self.base_color[1]) * progress)
+            b = int(self.base_color[2] + (self.flash_color[2] - self.base_color[2]) * progress)
+            
+            self.current_color = (r, g, b)
+            self.flash_frame -= 1
+        else:
+            self.current_color = self.base_color
+    
+    def on_beat(self, beat_count):
+        """ビートのタイミングでフラッシュ開始"""
+        self.flash_frame = self.flash_duration
+        self.current_color = self.flash_color
+    
+    def draw(self, screen):
+        """円を描画"""
+        pygame.draw.circle(screen, self.current_color, (int(self.x), int(self.y)), self.radius)
+
 class Scene:
     """シーンクラス"""
     def __init__(self):
@@ -142,9 +178,53 @@ class Movie:
         print("Time-based beat detection enabled for accurate synchronization")
         print("Press 'H' to toggle heavy processing simulation")
     
-    def add_scene(self, scene):
+    def add_scene(self, scene, duration_beats=None):
         """シーンを追加"""
-        self.scenes.append(scene)
+        self.scenes.append({
+            'scene': scene,
+            'duration_beats': duration_beats,  # シーンの再生時間（ビート数）
+            'start_beat': None  # シーン開始時のビート番号
+        })
+    
+    def get_current_scene_info(self):
+        """現在のシーン情報を取得"""
+        if not self.scenes or self.current_scene >= len(self.scenes):
+            return None
+        return self.scenes[self.current_scene]
+    
+    def switch_to_next_scene(self):
+        """次のシーンに切り替え"""
+        if self.current_scene < len(self.scenes) - 1:
+            self.current_scene += 1
+            # 新しいシーンの開始ビートを記録
+            current_beat = self.get_current_beat_from_music() or self.get_current_beat_from_time()
+            if current_beat is not None and self.current_scene < len(self.scenes):
+                self.scenes[self.current_scene]['start_beat'] = current_beat
+            print(f"Switched to scene {self.current_scene + 1}/{len(self.scenes)}")
+            return True
+        else:
+            print("All scenes completed")
+            return False
+    
+    def check_scene_transition(self, current_beat):
+        """シーンの切り替えが必要かチェック"""
+        scene_info = self.get_current_scene_info()
+        if not scene_info or scene_info['duration_beats'] is None:
+            return False
+        
+        # 現在のシーンの開始ビートが設定されていない場合は設定
+        if scene_info['start_beat'] is None:
+            scene_info['start_beat'] = current_beat
+            return False
+        
+        # シーン内での経過ビート数を計算
+        beats_in_scene = current_beat - scene_info['start_beat']
+        
+        # 指定されたビート数に達したら次のシーンに切り替え
+        if beats_in_scene >= scene_info['duration_beats']:
+            return self.switch_to_next_scene()
+        
+        return False
     
     def load_music(self, music_file):
         """音楽ファイルを読み込み"""
@@ -227,8 +307,9 @@ class Movie:
                         # Hキーで重い処理モードの切り替え
                         self.heavy_processing_mode = not self.heavy_processing_mode
                         # 全てのZoomBeaterの重い処理モードを更新
-                        if self.scenes and self.current_scene < len(self.scenes):
-                            for drawable in self.scenes[self.current_scene].drawables:
+                        scene_info = self.get_current_scene_info()
+                        if scene_info and scene_info['scene']:
+                            for drawable in scene_info['scene'].drawables:
                                 if hasattr(drawable, 'heavy_processing'):
                                     drawable.heavy_processing = self.heavy_processing_mode
                         print(f"Heavy processing mode: {'ON' if self.heavy_processing_mode else 'OFF'}")
@@ -249,24 +330,46 @@ class Movie:
             # 新しいビートが発生した場合のみon_beatを呼び出し
             if current_beat is not None and current_beat != self.last_beat_count:
                 if current_beat > self.last_beat_count:  # ビートが進んだ場合のみ
+                    # シーンの切り替えをチェック
+                    self.check_scene_transition(current_beat)
+                    
                     beat_in_measure = current_beat % self.beats_per_measure
-                    if self.scenes and self.current_scene < len(self.scenes):
-                        self.scenes[self.current_scene].on_beat(beat_in_measure)
+                    scene_info = self.get_current_scene_info()
+                    if scene_info and scene_info['scene']:
+                        scene_info['scene'].on_beat(beat_in_measure)
                     
                     # デバッグ情報（パフォーマンス低下時のみ表示）
                     if self.actual_fps < self.fps * 0.8:  # 目標FPSの80%以下の場合
-                        print(f"Beat {current_beat} (measure: {beat_in_measure}) - FPS: {self.actual_fps:.1f}")
+                        scene_num = self.current_scene + 1
+                        total_scenes = len(self.scenes)
+                        print(f"Beat {current_beat} (measure: {beat_in_measure}) Scene {scene_num}/{total_scenes} - FPS: {self.actual_fps:.1f}")
                     
                     self.last_beat_count = current_beat
             
             # 更新処理
-            if self.scenes and self.current_scene < len(self.scenes):
-                self.scenes[self.current_scene].update()
+            scene_info = self.get_current_scene_info()
+            if scene_info and scene_info['scene']:
+                scene_info['scene'].update()
             
             # 描画処理
             self.screen.fill((0, 0, 50))  # 濃紺背景
-            if self.scenes and self.current_scene < len(self.scenes):
-                self.scenes[self.current_scene].draw(self.screen)
+            if scene_info and scene_info['scene']:
+                scene_info['scene'].draw(self.screen)
+            
+            # シーン情報を画面に表示
+            if scene_info:
+                font = pygame.font.Font(None, 24)
+                scene_num = self.current_scene + 1
+                total_scenes = len(self.scenes)
+                scene_text = font.render(f"Scene {scene_num}/{total_scenes}", True, (255, 255, 255))
+                self.screen.blit(scene_text, (10, 50))
+                
+                # シーンの残り時間表示
+                if scene_info['duration_beats'] is not None and scene_info['start_beat'] is not None:
+                    beats_in_scene = current_beat - scene_info['start_beat'] if current_beat else 0
+                    remaining_beats = max(0, scene_info['duration_beats'] - beats_in_scene)
+                    remaining_text = font.render(f"Remaining: {remaining_beats} beats", True, (255, 255, 255))
+                    self.screen.blit(remaining_text, (10, 75))
             
             # FPS情報を画面に表示（デバッグ用）
             if hasattr(pygame, 'font') and self.actual_fps < self.fps * 0.9:
@@ -288,37 +391,87 @@ def main():
     # 音楽ファイル読み込み
     movie.load_music("base.mp3")
     
-    # シーン作成
+    # === シーン1: ZoomBeaterのシーン (16ビート = 4小節) ===
     scene1 = Scene()
     
     # ZoomBeaterオブジェクト作成（画面中央に配置）
     if os.path.exists("images/star_1.png"):
         zoom_beater = ZoomBeater(400, 300, "images/star_1.png", scale=1.0, zoom_scale=1.5)
         scene1.add_drawable(zoom_beater)
-        print("ZoomBeater added with star_1.png")
         
-        # 複数のZoomBeaterを追加してパフォーマンステスト
+        # 複数のZoomBeaterを追加
         positions = [(200, 150), (600, 150), (200, 450), (600, 450)]
         for i, (x, y) in enumerate(positions):
             if os.path.exists("images/star_2.png"):
                 zoom_beater2 = ZoomBeater(x, y, "images/star_2.png", scale=0.8, zoom_scale=1.3)
-                scene1.add_drawable(zoom_beater2)
             else:
-                # star_2.pngがない場合はstar_1.pngを使用
                 zoom_beater2 = ZoomBeater(x, y, "images/star_1.png", scale=0.6, zoom_scale=1.2)
-                scene1.add_drawable(zoom_beater2)
-        print("Additional ZoomBeaters added for performance testing")
+            scene1.add_drawable(zoom_beater2)
+        
+        print("Scene 1: ZoomBeater scene created")
     else:
         print("Warning: images/star_1.png not found")
     
-    # シーンをムービーに追加
-    movie.add_scene(scene1)
+    # === シーン2: FlashBeaterのシーン (12ビート = 3小節) ===
+    scene2 = Scene()
     
+    # FlashBeaterオブジェクト作成
+    colors = [
+        (255, 100, 100),  # 赤
+        (100, 255, 100),  # 緑
+        (100, 100, 255),  # 青
+        (255, 255, 100),  # 黄
+        (255, 100, 255),  # マゼンタ
+    ]
+    
+    flash_positions = [
+        (150, 200), (400, 150), (650, 200),
+        (200, 350), (600, 350), (400, 450)
+    ]
+    
+    for i, (x, y) in enumerate(flash_positions):
+        color = colors[i % len(colors)]
+        flash_beater = FlashBeater(x, y, radius=40, color=color, flash_color=(255, 255, 255))
+        scene2.add_drawable(flash_beater)
+    
+    print("Scene 2: FlashBeater scene created")
+    
+    # === シーン3: 混合シーン (20ビート = 5小節) ===
+    scene3 = Scene()
+    
+    # 中央に大きなFlashBeater
+    center_flash = FlashBeater(400, 300, radius=80, color=(50, 50, 200), flash_color=(255, 255, 0))
+    scene3.add_drawable(center_flash)
+    
+    # 周囲に小さなZoomBeater（画像がある場合）
+    if os.path.exists("images/star_1.png"):
+        circle_positions = []
+        for angle in range(0, 360, 45):  # 8方向
+            rad = math.radians(angle)
+            x = 400 + 150 * math.cos(rad)
+            y = 300 + 150 * math.sin(rad)
+            circle_positions.append((x, y))
+        
+        for x, y in circle_positions:
+            small_zoom = ZoomBeater(int(x), int(y), "images/star_1.png", scale=0.4, zoom_scale=0.8)
+            scene3.add_drawable(small_zoom)
+    
+    print("Scene 3: Mixed scene created")
+    
+    # シーンをムービーに追加（再生時間を指定）
+    movie.add_scene(scene1, duration_beats=8)  # 2小節
+    movie.add_scene(scene2, duration_beats=8)  # 1小節
+    movie.add_scene(scene3, duration_beats=16)  # 2小節
+    
+    print(f"Total scenes: {len(movie.scenes)}")
+    print("Scene durations: 8, 8, 16 beats respectively")
+
     # 音楽再生開始
     movie.play_music()
     
-    print("Movie started! Press SPACE to play/stop music, ESC or close window to quit.")
+    print("Movie started! Press SPACE to play/stop music, H to toggle heavy processing")
     print("Time-based beat synchronization enabled - beats will stay in sync even with low FPS")
+    print("Scenes will automatically switch based on beat count")
     
     # ムービー実行
     movie.run()
