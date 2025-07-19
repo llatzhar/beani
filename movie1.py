@@ -226,37 +226,56 @@ class Scene:
         for drawable in self.drawables:
             drawable.draw(screen)
 
-class CountdownScene(Scene):
-    """カウントダウン専用のシーンクラス"""
-    def __init__(self, width, height, countdown_beats=4, on_complete_callback=None):
-        super().__init__("Countdown Scene", duration_beats=countdown_beats)
+class CountdownManager:
+    """カウントダウン管理クラス（シーンから独立）"""
+    def __init__(self, width, height, countdown_beats=4):
         self.countdown_beats = countdown_beats
-        self.on_complete_callback = on_complete_callback
+        self.is_active = False
         self.is_completed = False
+        self.start_time = None
+        self.beat_interval_ms = 500  # 120BPMでの1ビートの時間（ms）
         
-        # カウントダウン表示オブジェクトを作成
-        countdown_display = CountdownBeater(width // 2, height // 2, initial_count=countdown_beats)
-        self.add_drawable(countdown_display)
-        
-        # 説明テキストオブジェクトを作成
-        info_text = CountdownInfoText(width // 2, height // 2 + 150)
-        self.add_drawable(info_text)
+        # カウントダウン表示オブジェクト
+        self.countdown_display = CountdownBeater(width // 2, height // 2, initial_count=countdown_beats)
+        self.info_text = CountdownInfoText(width // 2, height // 2 + 150)
     
-    def on_beat(self, beat, measure):
-        """ビート処理とカウントダウン完了チェック"""
-        super().on_beat(beat, measure)
+    def start_countdown(self, beat_interval_ms):
+        """カウントダウン開始"""
+        self.is_active = True
+        self.is_completed = False
+        self.start_time = pygame.time.get_ticks()
+        self.beat_interval_ms = beat_interval_ms
+        print(f"Countdown started for {self.countdown_beats} beats")
+    
+    def update(self):
+        """フレームごとの更新処理"""
+        if not self.is_active or self.is_completed:
+            return
+        
+        # 現在の経過時間からビート計算
+        current_time = pygame.time.get_ticks()
+        elapsed_ms = current_time - self.start_time
+        current_beat = int(elapsed_ms / self.beat_interval_ms)
         
         # カウントダウン完了チェック
-        # beat が countdown_beats に達したら完了
-        if not self.is_completed and beat >= self.countdown_beats:
+        if current_beat >= self.countdown_beats:
             self.is_completed = True
-            print(f"CountdownScene completed at beat {beat}")
-            if self.on_complete_callback:
-                self.on_complete_callback()
+            self.is_active = False
+            print(f"Countdown completed!")
+            return
+        
+        # ビートごとにカウントダウン表示を更新
+        self.countdown_display.on_beat(current_beat, current_beat % 4)
+        
+        # 表示オブジェクトの更新
+        self.countdown_display.update()
+        self.info_text.update()
     
-    def is_finished(self):
-        """カウントダウンが完了したかどうか"""
-        return self.is_completed
+    def draw(self, screen):
+        """カウントダウンを描画"""
+        if self.is_active and not self.is_completed:
+            self.countdown_display.draw(screen)
+            self.info_text.draw(screen)
 
 class Movie:
     """ムービークラス"""
@@ -290,7 +309,7 @@ class Movie:
         # フレーム管理
         self.frame_count = 0
         self.scenes = []
-        self.current_scene = 0
+        self.current_scene = -1  # カウントダウン中は無効な値で初期化
         
         # パフォーマンス監視
         self.actual_fps = fps
@@ -300,67 +319,50 @@ class Movie:
         
         # カウントダウンとムービー状態
         self.music_ready = False  # 音楽準備完了フラグ
-        self.countdown_scene = None  # カウントダウンシーンへの参照
+        self.countdown_manager = None  # カウントダウンマネージャー
+        self._scene_just_switched = False  # シーン切り替え直後フラグ
         
         print(f"BPM: {bpm}, Beat interval: {self.beat_interval:.2f}s, Frames per beat: {self.frames_per_beat}")
         print("Time-based beat detection enabled for accurate synchronization")
         print("Press 'H' to toggle heavy processing simulation")
     
-    def add_countdown_scene(self, countdown_beats=4):
-        """カウントダウンシーンを最初に追加"""
-        def on_countdown_complete():
-            self.start_music_and_scenes()
+    def start_countdown(self, countdown_beats=4):
+        """カウントダウンを開始"""
+        self.countdown_manager = CountdownManager(self.width, self.height, countdown_beats)
+        self.countdown_manager.start_countdown(self.beat_interval_ms)
+        self.start_time = pygame.time.get_ticks()
+        self.last_beat_count = -1
         
-        self.countdown_scene = CountdownScene(
-            self.width, 
-            self.height, 
-            countdown_beats=countdown_beats,
-            on_complete_callback=on_countdown_complete
-        )
-        
-        # カウントダウンシーンを最初に挿入
-        self.scenes.insert(0, self.countdown_scene)
-        
-        print(f"Countdown scene added ({countdown_beats} beats)")
+        # カウントダウン中は通常のシーンを無効化
+        self.current_scene = -1  # 無効な値に設定
+        print("Countdown started!")
     
     def start_music_and_scenes(self):
-        """カウントダウン完了後に音楽を開始し、次のシーンに移動"""
+        """音楽を開始し、通常のシーン処理を開始"""
         pygame.mixer.music.play()
         self.music_ready = True
         
         # 音楽開始時刻を記録（音楽位置検出の基準点）
         self.music_start_time = pygame.time.get_ticks()
-        
-        # ビート管理をリセット - 音楽開始時点を新たな基準点とする
-        # beat 0から開始できるよう、last_beat_countを-1にリセット
-        self.last_beat_count = -1
         self.start_time = self.music_start_time
+        self.last_beat_count = -1
         
         # 全シーンの開始ビートをリセット
         for scene in self.scenes:
             scene.start_beat = None
         
-        print(f"Music started after countdown! Total scenes: {len(self.scenes)}")
-        print(f"Current scene index: {self.current_scene}")
-        
-        # 次のシーンに移動（ビートリセット後なので正しいbeat 0付近が設定される）
-        if len(self.scenes) > 1:
-            result = self.switch_to_next_scene()
-            print(f"Scene switch result: {result}")
-            
-            # 新しいシーンの開始ビートを0に設定
-            if result and self.current_scene < len(self.scenes):
-                self.scenes[self.current_scene].start_beat = 0
-                print(f"Scene '{self.scenes[self.current_scene].name}' start_beat set to 0")
+        # 最初のシーンを開始
+        if self.scenes:
+            self.current_scene = 0
+            self.scenes[0].start_beat = 0
+            print(f"Music started! Starting with scene '{self.scenes[0].name}'")
         
         print("Scene transitions begin now!")
     
     def play_with_countdown(self, countdown_beats=4):
         """カウントダウン付きでムービーを開始"""
-        self.add_countdown_scene(countdown_beats)
-        self.start_time = pygame.time.get_ticks()
-        self.last_beat_count = -1
-        print("Movie started with countdown scene!")
+        self.start_countdown(countdown_beats)
+        print("Movie started with countdown!")
     
     def add_scene(self, scene, duration_beats=None):
         """シーンを追加"""
@@ -370,7 +372,11 @@ class Movie:
     
     def get_current_scene(self):
         """現在のシーンを取得"""
-        if not self.scenes or self.current_scene >= len(self.scenes):
+        # カウントダウン中は通常のシーンを返さない
+        if self.countdown_manager and self.countdown_manager.is_active:
+            return None
+        
+        if not self.scenes or self.current_scene < 0 or self.current_scene >= len(self.scenes):
             return None
         return self.scenes[self.current_scene]
     
@@ -396,13 +402,6 @@ class Movie:
         """シーンの切り替えが必要かチェック"""
         scene = self.get_current_scene()
         if not scene:
-            return False
-        
-        # カウントダウンシーンの場合は特別処理
-        if isinstance(scene, CountdownScene):
-            if scene.is_finished():
-                # カウントダウンが完了したら次のシーンに切り替え
-                return self.switch_to_next_scene()
             return False
         
         # 通常のシーンの処理
@@ -445,14 +444,15 @@ class Movie:
         self.start_time = self.music_start_time
         self.last_beat_count = -1
         
-        # カウントダウンシーンをスキップして次のシーンに移動
-        if (self.scenes and 
-            isinstance(self.scenes[self.current_scene], CountdownScene)):
-            # カウントダウンシーンを完了状態にする
-            self.scenes[self.current_scene].is_completed = True
-            # 次のシーンに切り替え
-            if len(self.scenes) > 1:
-                self.switch_to_next_scene()
+        # カウントダウンを無効化
+        if self.countdown_manager:
+            self.countdown_manager.is_active = False
+            self.countdown_manager.is_completed = True
+        
+        # 最初のシーンを開始
+        if self.scenes:
+            self.current_scene = 0
+            self.scenes[0].start_beat = 0
         
         # 各シーンの開始ビートをリセット
         for scene in self.scenes:
@@ -538,8 +538,15 @@ class Movie:
             # ビート検出
             current_beat = self.get_current_beat()
             
-            # 新しいビートが発生した場合のみ処理
-            if current_beat is not None and current_beat != self.last_beat_count:
+            # カウントダウン中の処理
+            if self.countdown_manager and self.countdown_manager.is_active:
+                self.countdown_manager.update()
+                
+                # カウントダウン完了チェック
+                if self.countdown_manager.is_completed:
+                    self.start_music_and_scenes()
+            
+            elif current_beat is not None and current_beat != self.last_beat_count:
                 # 基本的な処理条件
                 should_process = current_beat > self.last_beat_count
                 
@@ -550,12 +557,18 @@ class Movie:
                     time_since_music_start = pygame.time.get_ticks() - self.music_start_time
                     # 音楽開始からしばらくはpygame.mixer.music.get_pos()が正常に動作しない遅延時間がある
                     # 3秒以内で、かつ現在のビートが0～4の範囲内であれば強制的に処理
-                    if time_since_music_start < 3000 and current_beat <= 4:
-                        should_process = True
+                    #if time_since_music_start < 3000 and current_beat <= 4:
+                    #    should_process = True
                 
                 if should_process:
                     # シーンの切り替えをチェック
                     self.check_scene_transition(current_beat)
+                    
+                    # シーン切り替え直後の場合は、古いシーン情報の表示を避ける
+                    if self._scene_just_switched:
+                        print(f"DEBUG: Beat processing interrupted due to scene switch")
+                        self._scene_just_switched = False
+                        continue
                     
                     scene = self.get_current_scene()
                     if scene:
@@ -568,12 +581,9 @@ class Movie:
                     total_scenes = len(self.scenes)
                     scene_name = scene.name if scene else "Unknown"
                     
-                    # 通常のシーンの場合はbeat_in_measureも表示
-                    if scene and not isinstance(scene, CountdownScene):
-                        beat_in_measure = current_beat % self.beats_per_measure
-                        print(f"Beat {current_beat} (measure: {beat_in_measure}) Scene {scene_num}/{total_scenes} ({scene_name})")
-                    else:
-                        print(f"Beat {current_beat} Scene {scene_num}/{total_scenes} ({scene_name})")
+                    # ビート情報を表示
+                    beat_in_measure = current_beat % self.beats_per_measure
+                    print(f"Beat {current_beat} (measure: {beat_in_measure}) Scene {scene_num}/{total_scenes} ({scene_name})")
                     
                     # FPS低下時の追加情報
                     if self.actual_fps < self.fps * 0.8:  # 目標FPSの80%以下の場合
@@ -589,12 +599,16 @@ class Movie:
             # 描画処理
             self.screen.fill((0, 0, 50))  # 濃紺背景
             
-            # 現在のシーンを描画
-            if scene:
-                scene.draw(self.screen)
-                
-                # シーン情報を画面に表示（カウントダウンシーン以外）
-                if not isinstance(scene, CountdownScene):
+            # カウントダウン表示
+            if self.countdown_manager and self.countdown_manager.is_active:
+                self.countdown_manager.draw(self.screen)
+            else:
+                # 通常のシーンを描画
+                scene = self.get_current_scene()
+                if scene:
+                    scene.draw(self.screen)
+                    
+                    # シーン情報を画面に表示
                     font = pygame.font.Font(None, 24)
                     scene_num = self.current_scene + 1
                     total_scenes = len(self.scenes)
