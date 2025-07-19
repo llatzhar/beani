@@ -380,7 +380,7 @@ class Movie:
         if self.current_scene < len(self.scenes) - 1:
             self.current_scene += 1
             # 新しいシーンの開始ビートを記録
-            current_beat = self.get_current_beat_from_music() or self.get_current_beat_from_time()
+            current_beat = self.get_current_beat()
             if current_beat is not None and self.current_scene < len(self.scenes):
                 self.scenes[self.current_scene].start_beat = current_beat
             
@@ -460,31 +460,27 @@ class Movie:
         
         print(f"Music started immediately")
     
-    def get_current_beat_from_music(self):
-        """音楽の再生位置からビート番号を計算"""
-        if not self.music_ready or not pygame.mixer.music.get_busy():
-            return None
+    def get_current_beat(self):
+        """現在のビート番号を取得
         
-        # 音楽の再生位置を取得（ミリ秒）
-        music_pos = pygame.mixer.music.get_pos()
-        if music_pos == -1:  # 音楽が停止している場合
-            return None
+        Returns:
+            int: 現在のビート番号、取得できない場合はNone
+        """
+        current_beat = None
         
-        # 音楽開始からの経過時間
-        elapsed_time_ms = music_pos
+        # 音楽が準備完了している場合は音楽位置を使用
+        if self.music_ready and pygame.mixer.music.get_busy():
+            music_pos = pygame.mixer.music.get_pos()
+            if music_pos != -1:  # 音楽が正常に再生中
+                elapsed_time_ms = music_pos
+                current_beat = int(elapsed_time_ms / self.beat_interval_ms)
         
-        # ビート番号を計算
-        current_beat = int(elapsed_time_ms / self.beat_interval_ms)
-        return current_beat
-    
-    def get_current_beat_from_time(self):
-        """実時間からビート番号を計算（フォールバック）"""
-        if self.start_time is None:
-            return None
+        # フォールバック：実時間から計算
+        if current_beat is None and self.start_time is not None:
+            current_time = pygame.time.get_ticks()
+            elapsed_time_ms = current_time - self.start_time
+            current_beat = int(elapsed_time_ms / self.beat_interval_ms)
         
-        current_time = pygame.time.get_ticks()
-        elapsed_time_ms = current_time - self.start_time
-        current_beat = int(elapsed_time_ms / self.beat_interval_ms)
         return current_beat
     
     def update_fps_monitor(self):
@@ -540,30 +536,24 @@ class Movie:
             self.update_fps_monitor()
             
             # ビート検出
-            current_beat = None
+            current_beat = self.get_current_beat()
             
-            # 音楽が準備完了している場合は音楽位置を使用、そうでなければ実時間
-            if self.music_ready:
-                current_beat = self.get_current_beat_from_music()
-            
-            # フォールバック
-            if current_beat is None:
-                current_beat = self.get_current_beat_from_time()
-            
-            # 新しいビートが発生した場合のみon_beatを呼び出し
+            # 新しいビートが発生した場合のみ処理
             if current_beat is not None and current_beat != self.last_beat_count:
-                # 音楽開始直後のビート0～4を強制的に処理するため条件を調整
-                beat_should_process = current_beat > self.last_beat_count
+                # 基本的な処理条件
+                should_process = current_beat > self.last_beat_count
                 
-                # 音楽開始直後の場合は、beat 0～4でも処理を実行
-                if self.music_ready and hasattr(self, 'music_start_time') and self.music_start_time is not None:
+                # 音楽開始直後の遅延を考慮した特別処理
+                if (self.music_ready and 
+                    hasattr(self, 'music_start_time') and 
+                    self.music_start_time is not None):
                     time_since_music_start = pygame.time.get_ticks() - self.music_start_time
                     # 音楽開始からしばらくはpygame.mixer.music.get_pos()が正常に動作しない遅延時間がある
-                    # 3秒以内で、かつ現在のビートが0～4の範囲内であれば処理を行う
-                    if time_since_music_start < 3000 and current_beat <= 4:  # 最初の3秒間でbeat 0-4
-                        beat_should_process = True
+                    # 3秒以内で、かつ現在のビートが0～4の範囲内であれば強制的に処理
+                    if time_since_music_start < 3000 and current_beat <= 4:
+                        should_process = True
                 
-                if beat_should_process:  # 修正された条件を使用
+                if should_process:
                     # シーンの切り替えをチェック
                     self.check_scene_transition(current_beat)
                     
