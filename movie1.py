@@ -538,6 +538,8 @@ class Movie:
                 # 音楽開始直後の場合は、beat 0～4でも処理を実行
                 if self.music_ready and hasattr(self, 'music_start_time') and self.music_start_time is not None:
                     time_since_music_start = pygame.time.get_ticks() - self.music_start_time
+                    # 音楽開始からしばらくはpygame.mixer.music.get_pos()が正常に動作しない遅延時間がある
+                    # 3秒以内で、かつ現在のビートが0～4の範囲内であれば処理を行う
                     if time_since_music_start < 3000 and current_beat <= 4:  # 最初の3秒間でbeat 0-4
                         beat_should_process = True
                 
