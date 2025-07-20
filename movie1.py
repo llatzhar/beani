@@ -4,6 +4,7 @@ from movie import Movie
 from scene import Scene
 from zoom_beater import ZoomBeater
 from flash_beater import FlashBeater
+from beat_image_beater import BeatImageBeater
 
 
 def main():
@@ -94,9 +95,30 @@ def main():
     
     print("Scene 3: Mixed scene created")
     
+    # === シーン4: BeatImageBeaterのシーン (8ビート = 2小節) ===
+    scene4 = Scene("Beat Image Scene", duration_beats=8)
+    jrc_1 = resources.get_image('jrc_1')
+    jrc_2 = resources.get_image('jrc_2')
+    jrc_3 = resources.get_image('jrc_3')
+
+    
+    # 中央にBeatImageBeater（各拍で異なる画像を表示）
+    beat_image_beater = BeatImageBeater(
+        400, 300,
+        jrc_2,  # デフォルト画像
+        [jrc_1,jrc_1,jrc_3,jrc_1],  # 各拍の画像
+        scale=1.2,
+        priority=1
+    )
+    scene4.add_drawable(beat_image_beater)
+    
+    
+    print("Scene 4: BeatImageBeater scene created")
+    
     # シーンをムービーに追加
-    movie.add_scene(scene1)  # 8ビート
-    movie.add_scene(scene2)  # 8ビート
+    movie.add_scene(scene4)  # 8ビート
+    movie.add_scene(scene1)  # 8ビート  
+    movie.add_scene(scene4)  # 8ビート (新しいBeatImageBeaterシーン)
     movie.add_scene(scene3)  # 16ビート
     movie.add_scene(scene2)  # 8ビート
     print(f"Total scenes: {len(movie.scenes)}")
