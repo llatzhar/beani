@@ -4,9 +4,10 @@
 
 class Drawable:
     """描画可能オブジェクトの基底クラス"""
-    def __init__(self, x, y):
+    def __init__(self, x, y, priority=0):
         self.x = x
         self.y = y
+        self.priority = priority  # 描画優先順位（小さい値ほど先に描画）
     
     def update(self):
         """フレームごとに呼ばれる更新処理"""

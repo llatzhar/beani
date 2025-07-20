@@ -26,6 +26,8 @@ class Scene:
             drawable.on_beat(beat, measure)
     
     def draw(self, screen):
-        """全てのDrawableオブジェクトを描画"""
-        for drawable in self.drawables:
+        """全てのDrawableオブジェクトを優先順位順に描画"""
+        # priority順にソート（小さい値から先に描画）
+        sorted_drawables = sorted(self.drawables, key=lambda drawable: drawable.priority)
+        for drawable in sorted_drawables:
             drawable.draw(screen)

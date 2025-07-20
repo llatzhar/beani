@@ -7,8 +7,8 @@ from drawable import Drawable
 
 class ZoomBeater(Drawable):
     """ビートに合わせて画像を拡大/縮小するオブジェクト"""
-    def __init__(self, x, y, image_path, scale=1.0, zoom_scale=1.5, heavy_processing=False):
-        super().__init__(x, y)
+    def __init__(self, x, y, image_path, scale=1.0, zoom_scale=1.5, heavy_processing=False, priority=0):
+        super().__init__(x, y, priority)
         self.original_image = pygame.image.load(image_path)
         self.scale = scale
         self.zoom_scale = zoom_scale

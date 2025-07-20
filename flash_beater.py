@@ -7,8 +7,8 @@ from drawable import Drawable
 
 class FlashBeater(Drawable):
     """ビートに合わせて色が変化する円形オブジェクト"""
-    def __init__(self, x, y, radius=50, color=(255, 255, 255), flash_color=(255, 255, 0)):
-        super().__init__(x, y)
+    def __init__(self, x, y, radius=50, color=(255, 255, 255), flash_color=(255, 255, 0), priority=0):
+        super().__init__(x, y, priority)
         self.radius = radius
         self.base_color = color
         self.flash_color = flash_color
