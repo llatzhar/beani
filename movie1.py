@@ -5,6 +5,7 @@ from scene import Scene
 from zoom_beater import ZoomBeater
 from flash_beater import FlashBeater
 from beat_image_beater import BeatImageBeater
+from move_beater import MoveBeater
 
 
 def main():
@@ -115,10 +116,91 @@ def main():
     
     print("Scene 4: BeatImageBeater scene created")
     
+    # === シーン5: MoveBeaterのシーン (8ビート = 2小節) ===
+    scene5 = Scene("Moving Animation Scene", duration_beats=8)
+    
+    # 利用可能な画像を取得
+    star_images = [
+        resources.get_image('star_1'),
+        resources.get_image('star_2')
+    ]
+    star_images = [img for img in star_images if img is not None]
+    
+    flower_images = [
+        resources.get_image('flower_1'),
+        resources.get_image('flower_2')
+    ]
+    flower_images = [img for img in flower_images if img is not None]
+    
+    jrc_images = [
+        resources.get_image('jrc_1'),
+        resources.get_image('jrc_2'),
+        resources.get_image('jrc_3')
+    ]
+    jrc_images = [img for img in jrc_images if img is not None]
+    
+    # 画像がない場合はstar_1で代用
+    if not star_images:
+        star_images = [resources.get_image('star_1')]
+    if not flower_images:
+        flower_images = [resources.get_image('star_1')]
+    if not jrc_images:
+        jrc_images = [resources.get_image('star_1')]
+    
+    # 横に移動するMoveBeater（左から右へ）
+    move_beater1 = MoveBeater(
+        -50, 150,  # 画面左外から開始
+        star_images,
+        velocity_x=2, velocity_y=0,  # 右に移動
+        scale=0.8,
+        priority=1,
+        wrap_screen=True,
+        screen_width=800, screen_height=600
+    )
+    scene5.add_drawable(move_beater1)
+    
+    # 縦に移動するMoveBeater（上から下へ）
+    move_beater2 = MoveBeater(
+        650, -50,  # 画面上外から開始
+        flower_images,
+        velocity_x=0, velocity_y=1.5,  # 下に移動
+        scale=0.6,
+        priority=1,
+        wrap_screen=True,
+        screen_width=800, screen_height=600
+    )
+    scene5.add_drawable(move_beater2)
+    
+    # 斜めに移動するMoveBeater（跳ね返りモード）
+    move_beater3 = MoveBeater(
+        100, 100,
+        jrc_images,
+        velocity_x=3, velocity_y=2,  # 斜め移動
+        scale=0.7,
+        priority=2,
+        wrap_screen=False,  # 跳ね返りモード
+        screen_width=800, screen_height=600
+    )
+    scene5.add_drawable(move_beater3)
+    
+    # その場で画像切り替えのみ（速度0,0）
+    move_beater4 = MoveBeater(
+        400, 500,
+        [resources.get_image('star_1'), resources.get_image('star_2')] if resources.get_image('star_2') else [resources.get_image('star_1')],
+        velocity_x=0, velocity_y=0,  # 移動なし
+        scale=1.0,
+        priority=0,  # 背景
+        wrap_screen=True,
+        screen_width=800, screen_height=600
+    )
+    scene5.add_drawable(move_beater4)
+    
+    print("Scene 5: MoveBeater scene created")
+    
     # シーンをムービーに追加
     movie.add_scene(scene4)  # 8ビート
     movie.add_scene(scene1)  # 8ビート  
-    movie.add_scene(scene4)  # 8ビート (新しいBeatImageBeaterシーン)
+    movie.add_scene(scene5)  # 8ビート (新しいMoveBeaterシーン)
     movie.add_scene(scene3)  # 16ビート
     movie.add_scene(scene2)  # 8ビート
     print(f"Total scenes: {len(movie.scenes)}")
